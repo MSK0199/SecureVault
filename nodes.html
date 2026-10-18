@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SecureVault — Node Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #070D14; --surface: #0D1B2A; --card: #112033; --border: #1A3050;
+      --teal: #00C9A7; --teal-dim: #00A896; --teal-glow: rgba(0,201,167,0.12);
+      --purple: #7C5CFC; --coral: #FF6B6B; --gold: #FFD166;
+      --white: #F0F6FF; --muted: #5A7A9A; --text: #C8DCF0;
+      --mono: 'JetBrains Mono', monospace; --sans: 'Space Grotesk', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── Nav ── */
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .nav-brand { font-family: var(--mono); font-size: 1.1rem; font-weight: 600; color: var(--teal); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .nav-brand::before { content: ''; display: inline-block; width: 10px; height: 10px; background: var(--teal); border-radius: 2px; transform: rotate(45deg); }
+    .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--teal); }
+    .btn-logout { background: none; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-family: var(--sans); transition: all 0.2s; }
+    .btn-logout:hover { border-color: var(--coral); color: var(--coral); }
+
+    /* ── Page layout ── */
+    main { flex: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%; }
+    .page-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 1.8rem; flex-wrap: wrap; gap: 1rem; }
+    .page-header h2 { font-size: 1.4rem; font-weight: 700; color: var(--white); }
+    .page-header p { font-size: 0.82rem; color: var(--muted); margin-top: 3px; }
+    .cluster-summary { display: flex; gap: 1rem; }
+    .summary-pill { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; text-align: center; min-width: 80px; }
+    .summary-pill .val { font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--white); }
+    .summary-pill .lbl { font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+
+    /* ── Nodes: one per row, full-width standalone card ── */
+    .nodes-stack { display: flex; flex-direction: column; gap: 1.5rem; }
+
+    .node-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      transition: border-color 0.3s;
+      position: relative;
+    }
+    .node-panel.alive { border-color: rgba(0, 201, 167, 0.35); }
+    .node-panel.dead  { border-color: rgba(255, 107, 107, 0.35); }
+
+    /* Coloured left edge stripe — the "standalone" accent */
+    .node-panel::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+    }
+    .node-panel.alive::before { background: var(--teal); }
+    .node-panel.dead::before  { background: var(--coral); }
+
+    /* Panel header row */
+    .panel-header {
+      display: flex; align-items: center; gap: 1.2rem;
+      padding: 1.2rem 1.5rem 1.2rem 1.8rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(13, 27, 42, 0.5);
+      flex-wrap: wrap;
+    }
+    .node-identity { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+    .node-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .alive .node-icon { background: var(--teal-glow); border: 1px solid var(--teal-dim); color: var(--teal); }
+    .dead  .node-icon { background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3); color: var(--coral); }
+    .node-name-block .node-id-text { font-family: var(--mono); font-size: 1.05rem; font-weight: 700; color: var(--white); }
+    .node-name-block .node-role { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+    .status-badge {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 14px; border-radius: 20px;
+      font-family: var(--mono); font-size: 0.8rem; font-weight: 700;
+    }
+    .alive .status-badge { background: rgba(0,201,167,0.1); border: 1px solid rgba(0,201,167,0.25); color: var(--teal); }
+    .dead  .status-badge { background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.25); color: var(--coral); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot-green { background: var(--teal); box-shadow: 0 0 6px var(--teal); animation: pulse 2s infinite; }
+    .dot-red   { background: var(--coral); box-shadow: 0 0 6px var(--coral); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+    /* Inline KPIs in the header */
+    .kpi-row { display: flex; gap: 1rem; margin-left: auto; flex-wrap: wrap; }
+    .kpi { text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; min-width: 72px; }
+    .kpi .k-val { font-family: var(--mono); font-size: 1.1rem; font-weight: 700; color: var(--white); }
+    .kpi .k-lbl { font-size: 0.65rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+
+    /* Action buttons in header */
+    .panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-sm {
+      background: transparent; padding: 7px 14px; border-radius: 7px;
+      font-family: var(--sans); font-size: 0.78rem; font-weight: 600;
+      cursor: pointer; border: none; transition: all 0.2s;
+    }
+    .btn-ping-node { border: 1px solid var(--teal-dim); color: var(--teal); }
+    .btn-ping-node:hover { background: var(--teal-glow); }
+    .btn-kill-node { border: 1px solid rgba(255,107,107,0.3); color: var(--coral); }
+    .btn-kill-node:hover { background: rgba(255,107,107,0.1); }
+
+    /* Panel body — two-column: chunk list + log */
+    .panel-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    @media (max-width: 780px) { .panel-body { grid-template-columns: 1fr; } }
+
+    /* Chunk list column */
+    .col-chunks { padding: 1.2rem 1.5rem; border-right: 1px solid var(--border); }
+    @media (max-width: 780px) { .col-chunks { border-right: none; border-bottom: 1px solid var(--border); } }
+    .col-title { font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; }
+
+    .chunk-scroll { max-height: 180px; overflow-y: auto; }
+    .chunk-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(26,48,80,0.4); font-size: 0.78rem; }
+    .chunk-row:last-child { border-bottom: none; }
+    .chunk-idx { font-family: var(--mono); color: var(--muted); min-width: 60px; }
+    .chunk-file { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chunk-hash { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); flex-shrink: 0; }
+    .chunk-ok { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); flex-shrink: 0; }
+    .no-chunks { color: var(--muted); font-size: 0.82rem; padding: 1rem 0; text-align: center; }
+
+    /* Activity log column */
+    .col-log { padding: 1.2rem 1.5rem; }
+    .log-scroll { max-height: 180px; overflow-y: auto; }
+    .log-line { font-family: var(--mono); font-size: 0.72rem; line-height: 1.9; border-bottom: 1px solid rgba(26,48,80,0.3); padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .log-line:last-child { border-bottom: none; }
+    .log-line.ok   { color: var(--teal); }
+    .log-line.warn { color: var(--gold); }
+    .log-line.err  { color: var(--coral); }
+    .log-line.info { color: var(--text); }
+
+    /* ── Cluster-wide replication bar ── */
+    .rep-section { margin-top: 1.8rem; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.4rem 1.5rem; }
+    .rep-title { font-size: 0.68rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 1.1rem; }
+    .rep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .rep-node { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; text-align: center; }
+    .rep-node-label { font-family: var(--mono); font-size: 0.85rem; font-weight: 700; color: var(--white); margin-bottom: 8px; }
+    .rep-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+    .rep-fill { height: 100%; border-radius: 3px; background: var(--teal); transition: width 0.6s ease; }
+    .rep-chunks { font-size: 0.7rem; color: var(--muted); font-family: var(--mono); }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: 24px; right: 24px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 20px; font-size: 0.88rem; color: var(--white); box-shadow: 0 8px 32px rgba(0,0,0,0.4); transform: translateY(80px); opacity: 0; transition: all 0.3s; z-index: 999; }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.success { border-color: var(--teal); }
+    #toast.error   { border-color: var(--coral); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/dashboard" class="nav-brand">SecureVault</a>
+  <div class="nav-links">
+    <a href="/dashboard">Files</a>
+    <a href="/nodes" class="active">Nodes</a>
+  </div>
+  <button class="btn-logout" onclick="logout()">Sign out</button>
+</nav>
+
+<main>
+  <div class="page-header">
+    <div>
+      <h2>Storage Nodes</h2>
+      <p>Each node runs independently — its own storage, its own log, its own status</p>
+    </div>
+    <div class="cluster-summary">
+      <div class="summary-pill"><div class="val" id="s-online">—</div><div class="lbl">Online</div></div>
+      <div class="summary-pill"><div class="val" id="s-total">—</div><div class="lbl">Total</div></div>
+      <div class="summary-pill"><div class="val" id="s-chunks">—</div><div class="lbl">Chunks</div></div>
+    </div>
+  </div>
+
+  <!-- One standalone card per node -->
+  <div class="nodes-stack" id="nodes-stack">
+    <div style="color:var(--muted);font-size:0.88rem;padding:2rem 0">Connecting to cluster…</div>
+  </div>
+
+  <!-- Cluster-wide replication distribution -->
+  <div class="rep-section">
+    <div class="rep-title">Replication Distribution — Chunks per Node</div>
+    <div class="rep-grid" id="rep-grid">
+      <div class="rep-node"><div class="rep-node-label">node_a</div><div class="rep-bar"><div class="rep-fill" id="rf-node_a" style="width:0%"></div></div><div class="rep-chunks" id="rc-node_a">—</div></div>
+      <div class="rep-node"><div class="rep-node-label">node_b</div><div class="rep-bar"><div class="rep-fill" id="rf-node_b" style="width:0%"></div></div><div class="rep-chunks" id="rc-node_b">—</div></div>
+      <div class="rep-node"><div class="rep-node-label">node_c</div><div class="rep-bar"><div class="rep-fill" id="rf-node_c" style="width:0%"></div></div><div class="rep-chunks" id="rc-node_c">—</div></div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const TOKEN = localStorage.getItem('sv_token') || '';
+if (!TOKEN) window.location.href = '/';
+
+function logout() { localStorage.removeItem('sv_token'); window.location.href = '/'; }
+function authH() { return { 'Authorization': 'Bearer ' + TOKEN }; }
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = (type === 'success' ? '✓  ' : '✗  ') + msg;
+  t.className = 'show ' + type;
+  setTimeout(() => { t.className = ''; }, 3200);
+}
+
+// ── Per-node state ───────────────────────────────────────────────────────
+const NODE_CONFIG = [
+  { id: 'node_a', port: 9001 },
+  { id: 'node_b', port: 9002 },
+  { id: 'node_c', port: 9003 },
+];
+
+// Per-node activity log (in memory, newest first)
+const nodeLogs = { node_a: [], node_b: [], node_c: [] };
+// Previous alive state to detect transitions
+const prevAlive = {};
+// Per-node chunk counts (fetched from chunk map)
+const nodeChunkCounts = { node_a: 0, node_b: 0, node_c: 0 };
+
+// ── Logging helpers ──────────────────────────────────────────────────────
+function ts() {
+  return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function log(nodeId, msg, type = 'info') {
+  const entry = { t: ts(), msg, type };
+  nodeLogs[nodeId].unshift(entry);
+  if (nodeLogs[nodeId].length > 60) nodeLogs[nodeId].pop();
+  renderLog(nodeId);
+}
+function renderLog(nodeId) {
+  const el = document.getElementById('log-' + nodeId);
+  if (!el) return;
+  el.innerHTML = nodeLogs[nodeId].map(e =>
+    `<div class="log-line ${e.type}">[${e.t}] ${e.msg}</div>`
+  ).join('');
+}
+
+// ── Build standalone panel HTML for one node ─────────────────────────────
+function buildPanel(cfg, alive) {
+  const { id, port } = cfg;
+  const cls = alive ? 'alive' : 'dead';
+  const dotCls = alive ? 'dot-green' : 'dot-red';
+  const statusText = alive ? 'ONLINE' : 'OFFLINE';
+
+  return `
+  <div class="node-panel ${cls}" id="panel-${id}">
+    <!-- Panel header -->
+    <div class="panel-header">
+      <div class="node-identity">
+        <div class="node-icon">${id.replace('node_','N').toUpperCase()}</div>
+        <div class="node-name-block">
+          <div class="node-id-text">${id}</div>
+          <div class="node-role">Storage Node · 127.0.0.1:${port}</div>
+        </div>
+      </div>
+
+      <div class="status-badge">
+        <div class="dot ${dotCls}"></div>
+        ${statusText}
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="k-val" id="kpi-chunks-${id}">—</div><div class="k-lbl">Chunks</div></div>
+        <div class="kpi"><div class="k-val" id="kpi-missed-${id}">0</div><div class="k-lbl">Missed</div></div>
+        <div class="kpi"><div class="k-val" id="kpi-pings-${id}">0</div><div class="k-lbl">Pings</div></div>
+      </div>
+
+      <div class="panel-actions">
+        <button class="btn-sm btn-ping-node" onclick="pingNode('${id}')">↺ Ping</button>
+      </div>
+    </div>
+
+    <!-- Panel body: chunk list | activity log -->
+    <div class="panel-body">
+      <!-- Chunk inventory -->
+      <div class="col-chunks">
+        <div class="col-title">
+          <span>Chunk Inventory</span>
+          <span id="chunk-count-lbl-${id}" style="font-family:var(--mono);color:var(--teal)">—</span>
+        </div>
+        <div class="chunk-scroll" id="chunks-${id}">
+          <div class="no-chunks">No chunk data yet</div>
+        </div>
+      </div>
+
+      <!-- Activity log -->
+      <div class="col-log">
+        <div class="col-title">
+          <span>Activity Log</span>
+          <button class="btn-sm" onclick="clearNodeLog('${id}')"
+            style="font-size:0.68rem;padding:3px 8px;border:1px solid var(--border);color:var(--muted);background:none;border-radius:5px;cursor:pointer">
+            Clear
+          </button>
+        </div>
+        <div class="log-scroll" id="log-${id}">
+          <div class="log-line info">[ system ] Node panel initialised</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Render all panels ────────────────────────────────────────────────────
+function renderPanels(nodesMap) {
+  const stack = document.getElementById('nodes-stack');
+  // First render — build all panels
+  if (!stack.querySelector('.node-panel')) {
+    stack.innerHTML = NODE_CONFIG.map(cfg =>
+      buildPanel(cfg, nodesMap[cfg.id] !== false)
+    ).join('');
+    // Seed logs
+    NODE_CONFIG.forEach(cfg => {
+      log(cfg.id, `Node panel started — monitoring 127.0.0.1:${cfg.port}`, 'ok');
+    });
+    return;
+  }
+  // Subsequent renders — update status badge & panel class only
+  NODE_CONFIG.forEach(cfg => {
+    const panel = document.getElementById('panel-' + cfg.id);
+    if (!panel) return;
+    const alive = nodesMap[cfg.id] !== false;
+    panel.className = 'node-panel ' + (alive ? 'alive' : 'dead');
+    const badge = panel.querySelector('.status-badge');
+    if (badge) {
+      badge.innerHTML = `<div class="dot ${alive ? 'dot-green' : 'dot-red'}"></div>${alive ? 'ONLINE' : 'OFFLINE'}`;
+    }
+  });
+}
+
+// ── Ping counter per node ────────────────────────────────────────────────
+const pingCounts = { node_a: 0, node_b: 0, node_c: 0 };
+const missedCounts = { node_a: 0, node_b: 0, node_c: 0 };
+
+function incKpi(nodeId, field, val) {
+  const el = document.getElementById(`kpi-${field}-${nodeId}`);
+  if (el) el.textContent = val;
+}
+
+// ── Manual ping a single node ────────────────────────────────────────────
+async function pingNode(nodeId) {
+  log(nodeId, `Manual ping sent to ${nodeId}…`, 'info');
+  try {
+    const r = await fetch('/api/nodes/health', { headers: authH() });
+    const d = await r.json();
+    const alive = d.nodes && d.nodes[nodeId];
+    if (alive) {
+      log(nodeId, `Ping OK — ${nodeId} responded`, 'ok');
+      showToast(`${nodeId} responded OK`);
+    } else {
+      log(nodeId, `Ping FAILED — ${nodeId} not responding`, 'err');
+      showToast(`${nodeId} did not respond`, 'error');
+    }
+  } catch(e) {
+    log(nodeId, `Ping error: ${e.message}`, 'err');
+  }
+}
+
+function clearNodeLog(nodeId) {
+  nodeLogs[nodeId] = [];
+  log(nodeId, 'Log cleared', 'info');
+}
+
+// ── Fetch chunk map and populate each node's chunk inventory ─────────────
+async function loadChunkMap() {
+  try {
+    // We need file list first, then chunk locations per file
+    const fr = await fetch('/api/files', { headers: authH() });
+    if (!fr.ok) return;
+    const fd = await fr.json();
+    const files = fd.files || [];
+
+    // Accumulate chunks per node
+    const nodeChunks = { node_a: [], node_b: [], node_c: [] };
+
+    for (const file of files) {
+      try {
+        const cr = await fetch(`/api/files/${file.file_id}`, { headers: authH() });
+        if (!cr.ok) continue;
+        const cd = await cr.json();
+        const chunks = cd.chunks || [];
+        for (const chunk of chunks) {
+          for (const nid of (chunk.node_ids || [])) {
+            if (nodeChunks[nid]) {
+              nodeChunks[nid].push({
+                fileId: file.file_id,
+                fileName: file.file_name,
+                idx: chunk.chunk_index,
+                hash: chunk.chunk_hash,
+              });
+            }
+          }
+        }
+      } catch(e) { /* skip */ }
+    }
+
+    // Render per-node chunk inventory
+    let totalChunks = 0;
+    NODE_CONFIG.forEach(cfg => {
+      const list = nodeChunks[cfg.id] || [];
+      nodeChunkCounts[cfg.id] = list.length;
+      totalChunks += list.length;
+
+      const el = document.getElementById('chunks-' + cfg.id);
+      const lbl = document.getElementById('chunk-count-lbl-' + cfg.id);
+      const kpi = document.getElementById('kpi-chunks-' + cfg.id);
+      if (lbl) lbl.textContent = list.length + ' chunks';
+      if (kpi) kpi.textContent = list.length;
+
+      if (!el) return;
+      if (list.length === 0) {
+        el.innerHTML = '<div class="no-chunks">No chunks stored on this node</div>';
+        return;
+      }
+      el.innerHTML = list.map(c => `
+        <div class="chunk-row">
+          <div class="chunk-ok"></div>
+          <span class="chunk-idx">chunk_${String(c.idx).padStart(3, '0')}</span>
+          <span class="chunk-file" title="${c.fileName}">${c.fileName}</span>
+          <span class="chunk-hash">${c.hash.slice(0, 8)}…</span>
+        </div>
+      `).join('');
+    });
+
+    // Update replication bars
+    const max = Math.max(...Object.values(nodeChunkCounts), 1);
+    NODE_CONFIG.forEach(cfg => {
+      const count = nodeChunkCounts[cfg.id];
+      const bar = document.getElementById('rf-' + cfg.id);
+      const label = document.getElementById('rc-' + cfg.id);
+      if (bar) bar.style.width = Math.round((count / max) * 100) + '%';
+      if (label) label.textContent = count + ' chunk' + (count !== 1 ? 's' : '');
+    });
+
+    // Summary
+    document.getElementById('s-chunks').textContent = totalChunks;
+
+  } catch(e) { /* silent — not critical */ }
+}
+
+// ── Main polling loop ────────────────────────────────────────────────────
+let pollCount = 0;
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/nodes/health', { headers: authH() });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    const d = await r.json();
+    const nodes = d.nodes || {};
+
+    // Count alive
+    const aliveCount = Object.values(nodes).filter(Boolean).length;
+    document.getElementById('s-online').textContent = aliveCount;
+    document.getElementById('s-total').textContent = NODE_CONFIG.length;
+
+    // Build / update panels
+    renderPanels(nodes);
+
+    // Per-node status tracking
+    NODE_CONFIG.forEach(cfg => {
+      const alive = nodes[cfg.id];
+      pingCounts[cfg.id]++;
+      incKpi(cfg.id, 'pings', pingCounts[cfg.id]);
+
+      if (alive) {
+        missedCounts[cfg.id] = 0;
+        incKpi(cfg.id, 'missed', 0);
+      } else {
+        missedCounts[cfg.id]++;
+        incKpi(cfg.id, 'missed', missedCounts[cfg.id]);
+      }
+
+      // Log state transitions
+      if (prevAlive[cfg.id] === undefined) {
+        log(cfg.id, alive ? `${cfg.id} is ONLINE (port ${cfg.port})` : `${cfg.id} is OFFLINE`, alive ? 'ok' : 'err');
+      } else if (prevAlive[cfg.id] !== alive) {
+        if (!alive) {
+          log(cfg.id, `⚠ ${cfg.id} went OFFLINE — heartbeat lost`, 'err');
+          log(cfg.id, 'Re-replication triggered for affected chunks', 'warn');
+        } else {
+          log(cfg.id, `✓ ${cfg.id} is back ONLINE`, 'ok');
+          log(cfg.id, 'Re-joining cluster — reconciliation in progress', 'warn');
+        }
+      } else {
+        // Normal heartbeat — log every 3rd poll to keep the log readable
+        if (pollCount % 3 === 0) {
+          log(cfg.id, `Heartbeat OK — ${alive ? 'healthy' : 'not responding'}`, alive ? 'ok' : 'err');
+        }
+      }
+      prevAlive[cfg.id] = alive;
+    });
+
+    pollCount++;
+
+    // Refresh chunk map less frequently (every 3 polls = ~15s)
+    if (pollCount % 3 === 1) await loadChunkMap();
+
+  } catch(e) {
+    NODE_CONFIG.forEach(cfg => log(cfg.id, `Gateway unreachable: ${e.message}`, 'err'));
+  }
+}
+
+// Start
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
