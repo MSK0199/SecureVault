@@ -5,10 +5,7 @@
 ## Team
 | Name | Roll | Module |
 |---|---|---|
-| Shashwat Kumar | 22MIS7212 | Encryption & Node comms |
-| Saif Khan | 22MIS | Auth, RBAC & Flask UI |
-| Lekhana | 22MIS | File chunking & Testing |
-| Balramreddy | 22MIS | Replication & Fault tolerance |
+| Shashwat Kumar | 22MIS7212 | Encryption & Node comms || Auth, RBAC & Flask UI || File chunking & Testing || Replication & Fault tolerance |
 
 ## Architecture
 ```
